@@ -2,7 +2,13 @@ import os
 import logging
 from flask import Flask, request, jsonify
 from telegram import Update, InputMediaPhoto, PaidMediaInfo
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application, 
+    ContextTypes, 
+    MessageHandler, 
+    filters, 
+    BusinessConnectionHandler  # ← NEW: Dedicated handler for business connections
+)
 
 # =============================
 # CONFIG FROM ENV (RENDER)
@@ -90,8 +96,8 @@ async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE
 # =============================
 # REGISTER HANDLERS
 # =============================
-# Business connection updates
-application.add_handler(MessageHandler(filters.BUSINESS_CONNECTION, handle_business_connection))
+# Business connection updates (NEW: Dedicated handler)
+application.add_handler(BusinessConnectionHandler(handle_business_connection))
 
 # Text messages (in your DMs)
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
