@@ -37,7 +37,7 @@ application = Application.builder().token(BOT_TOKEN).build()
 # BOT HANDLERS
 # =============================
 async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle business connection updates (connect/disconnect)"""
+    """Handle business connection (connect/disconnect)"""
     global business_connection_id
     conn = update.business_connection
     if conn and conn.is_enabled:
@@ -45,7 +45,7 @@ async def handle_business_connection(update: Update, context: ContextTypes.DEFAU
         logger.info(f"Business connected: {conn.id} | can_reply={conn.can_reply}")
     else:
         business_connection_id = None
-        logger.warning("Business connection disabled or revoked")
+        logger.warning("Business connection disabled")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming DMs to your personal account"""
@@ -91,7 +91,7 @@ async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE
 # REGISTER HANDLERS
 # =============================
 # Business connection updates
-application.add_handler(MessageHandler(filters.UpdateType.BUSINESS_CONNECTION, handle_business_connection))
+application.add_handler(MessageHandler(filters.BUSINESS_CONNECTION, handle_business_connection))
 
 # Text messages (in your DMs)
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
