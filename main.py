@@ -7,8 +7,8 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 # =============================
 # CONFIG FROM ENV (SET IN RENDER)
 # =============================
-BOT_TOKEN = os.getenv("7200932159:AAFDynL8jZHcDaBUT-HcxonqOGIuEK-VdiY")
-FULL_IMAGE_PATH = os.getenv("FULL_IMAGE_PATH", "a7x9p2q1z.jpg.jpg")
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # ← MUST be set in Render Dashboard
+FULL_IMAGE_PATH = os.getenv("FULL_IMAGE_PATH", "a7x9p2q1z.jpg")  # ← NO double .jpg
 STARS_AMOUNT = int(os.getenv("STARS_AMOUNT", "499"))
 PAYLOAD = os.getenv("PAYLOAD", "unlock_image")
 TRIGGER_PHRASE = os.getenv("TRIGGER_PHRASE", "send nudes").strip().lower()
