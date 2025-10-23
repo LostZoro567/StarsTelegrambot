@@ -5,14 +5,20 @@ from telegram import Update, InputMediaPhoto, PaidMediaInfo
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 # =============================
-# CONFIG FROM ENV (SET IN RENDER)
+# CONFIG FROM ENV (RENDER)
 # =============================
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # ← MUST be set in Render Dashboard
-FULL_IMAGE_PATH = os.getenv("FULL_IMAGE_PATH", "a7x9p2q1z.jpg")  # ← NO double .jpg
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+FULL_IMAGE_PATH = os.getenv("FULL_IMAGE_PATH", "a7x9p2q1z.jpg")
 STARS_AMOUNT = int(os.getenv("STARS_AMOUNT", "499"))
 PAYLOAD = os.getenv("PAYLOAD", "unlock_image")
 TRIGGER_PHRASE = os.getenv("TRIGGER_PHRASE", "send nudes").strip().lower()
 CAPTION = os.getenv("CAPTION", "here you go")
+
+# =============================
+# VALIDATE BOT_TOKEN
+# =============================
+if not BOT_TOKEN or not BOT_TOKEN.strip():
+    raise RuntimeError("BOT_TOKEN is missing! Set it in Render → Environment Variables.")
 
 # =============================
 # GLOBALS
@@ -30,7 +36,8 @@ application = Application.builder().token(BOT_TOKEN).build()
 # =============================
 # BOT HANDLERS
 # =============================
-async def handle_business_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle business connection updates (connect/disconnect)"""
     global business_connection_id
     conn = update.business_connection
     if conn and conn.is_enabled:
@@ -38,9 +45,10 @@ async def handle_business_connect(update: Update, context: ContextTypes.DEFAULT_
         logger.info(f"Business connected: {conn.id} | can_reply={conn.can_reply}")
     else:
         business_connection_id = None
-        logger.warning("Business connection disabled")
+        logger.warning("Business connection disabled or revoked")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming DMs to your personal account"""
     global business_connection_id
     if not business_connection_id or not update.message:
         return
@@ -72,15 +80,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Send failed: {e}")
 
 async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Approve Star payments"""
     query = update.pre_checkout_query
     if query.invoice_payload == PAYLOAD:
         await query.answer(ok=True)
     else:
         await query.answer(ok=False, error_message="Invalid payload")
 
-# Register handlers (using new 'filters' module)
-application.add_handler(MessageHandler(filters.StatusUpdate.BUSINESS_CONNECTION, handle_business_connect))
+# =============================
+# REGISTER HANDLERS
+# =============================
+# Business connection updates
+application.add_handler(MessageHandler(filters.UpdateType.BUSINESS_CONNECTION, handle_business_connection))
+
+# Text messages (in your DMs)
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+# Pre-checkout queries (payment approval)
 application.add_handler(MessageHandler(filters.PRECHECKOUT_QUERY, handle_pre_checkout))
 
 # =============================
