@@ -41,10 +41,14 @@ business_conn_id: str | None = None
 application: Application | None = None
 
 # -------------------------- QUART APP ------------------------
-# Patch for Quart/Flask-Sansio config key bug (Python 3.13)
-from flask.sansio.app import App as SansioApp
-if "PROVIDE_AUTOMATIC_OPTIONS" not in SansioApp.default_config:
-    SansioApp.default_config["PROVIDE_AUTOMATIC_OPTIONS"] = True
+# Safe patch for missing config key in some Quart builds
+try:
+    from flask.sansio.app import App as SansioApp
+    if "PROVIDE_AUTOMATIC_OPTIONS" not in SansioApp.default_config:
+        SansioApp.default_config["PROVIDE_AUTOMATIC_OPTIONS"] = True
+except Exception as e:
+    # silently skip if module not present (safe on newer Quart)
+    log.info("Flask-Sansio patch skipped: %s", e)
 
 app = Quart(__name__)
 
@@ -150,7 +154,6 @@ async def main():
     register_handlers()
     log.info("Bot READY – Webhook active at /webhook")
 
-    # Run Quart with uvicorn (ASGI)
     import uvicorn
     config = uvicorn.Config(
         app,
