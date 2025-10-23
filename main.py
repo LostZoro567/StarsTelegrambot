@@ -2,13 +2,13 @@ import os
 import logging
 from flask import Flask, request, jsonify
 from telegram import Update, InputMediaPhoto, PaidMediaInfo
-from telegram.ext import Application, ContextTypes, MessageHandler, Filters
+from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 # =============================
 # CONFIG FROM ENV (SET IN RENDER)
 # =============================
 BOT_TOKEN = os.getenv("7200932159:AAFDynL8jZHcDaBUT-HcxonqOGIuEK-VdiY")
-FULL_IMAGE_PATH = os.getenv("FULL_IMAGE_PATH", "a7x9p2q1z.jpg")
+FULL_IMAGE_PATH = os.getenv("FULL_IMAGE_PATH", "a7x9p2q1z.jpg.jpg")
 STARS_AMOUNT = int(os.getenv("STARS_AMOUNT", "499"))
 PAYLOAD = os.getenv("PAYLOAD", "unlock_image")
 TRIGGER_PHRASE = os.getenv("TRIGGER_PHRASE", "send nudes").strip().lower()
@@ -33,7 +33,7 @@ application = Application.builder().token(BOT_TOKEN).build()
 async def handle_business_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global business_connection_id
     conn = update.business_connection
-    if conn.is_enabled:
+    if conn and conn.is_enabled:
         business_connection_id = conn.id
         logger.info(f"Business connected: {conn.id} | can_reply={conn.can_reply}")
     else:
@@ -78,13 +78,13 @@ async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await query.answer(ok=False, error_message="Invalid payload")
 
-# Register handlers
-application.add_handler(MessageHandler(Filters.business_connection, handle_business_connect))
-application.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-application.add_handler(MessageHandler(Filters.pre_checkout_query, handle_pre_checkout))
+# Register handlers (using new 'filters' module)
+application.add_handler(MessageHandler(filters.StatusUpdate.BUSINESS_CONNECTION, handle_business_connect))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+application.add_handler(MessageHandler(filters.PRECHECKOUT_QUERY, handle_pre_checkout))
 
 # =============================
-# WEBHOOK ENDPOINT (RENDER)
+# WEBHOOK ENDPOINT
 # =============================
 @app.route('/webhook', methods=['POST'])
 async def webhook():
@@ -99,18 +99,11 @@ async def webhook():
 
 @app.route('/')
 def home():
-    return "<h1>Paid DM Bot Running</h1>Use @BotFather to set webhook to: <code>/webhook</code>"
+    return "<h1>Paid DM Bot Running</h1>Webhook: <code>/webhook</code>"
 
 # =============================
 # START SERVER
 # =============================
 if __name__ == '__main__':
-    # Render provides PORT
     port = int(os.environ.get("PORT", 10000))
-    # Use gunicorn in production, Flask dev server for local
-    import sys
-    if 'gunicorn' in sys.modules:
-        # Already running under gunicorn
-        pass
-    else:
-        app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port)
