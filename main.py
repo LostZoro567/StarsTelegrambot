@@ -7,7 +7,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, Filters
 # =============================
 # CONFIG FROM ENV (SET IN RENDER)
 # =============================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("8448653141:AAFCfxIWjtI7ZjGQJs-lYJ8iYRzorrGX7O0")
 FULL_IMAGE_PATH = os.getenv("FULL_IMAGE_PATH", "a7x9p2q1z.jpg")
 STARS_AMOUNT = int(os.getenv("STARS_AMOUNT", "499"))
 PAYLOAD = os.getenv("PAYLOAD", "unlock_image")
