@@ -1,11 +1,11 @@
 # --------------------------------------------------------------
-# main.py  –  Paid-DM bot with ASGI FIX (Quart + Uvicorn)
+# main.py  –  Paid-DM Telegram Bot (Quart + Uvicorn, Python 3.13)
 # --------------------------------------------------------------
 
 import os
 import logging
 import asyncio
-from quart import Quart, request, jsonify  # ← ASYNC FLASK
+from quart import Quart, request, jsonify  # ASGI-compatible Flask
 
 from telegram import Update, InputMediaPhoto, PaidMediaInfo
 from telegram.ext import (
@@ -27,7 +27,7 @@ CAPTION = os.getenv("CAPTION", "here you go")
 
 # ----------------------- VALIDATION -----------------------
 if not BOT_TOKEN or not BOT_TOKEN.strip():
-    raise RuntimeError("BOT_TOKEN missing – set it in Render → Environment")
+    raise RuntimeError("BOT_TOKEN missing – set it in Render → Environment Variables")
 
 # -------------------------- LOGGING ------------------------
 logging.basicConfig(
@@ -41,6 +41,11 @@ business_conn_id: str | None = None
 application: Application | None = None
 
 # -------------------------- QUART APP ------------------------
+# Patch for Quart/Flask-Sansio config key bug (Python 3.13)
+from flask.sansio.app import App as SansioApp
+if "PROVIDE_AUTOMATIC_OPTIONS" not in SansioApp.default_config:
+    SansioApp.default_config["PROVIDE_AUTOMATIC_OPTIONS"] = True
+
 app = Quart(__name__)
 
 # ----------------------- BOT INITIALIZE --------------------
@@ -53,6 +58,7 @@ async def init_bot():
 
 # ----------------------- HANDLERS -------------------------
 async def handle_business_connection(update: Update, _: ContextTypes.DEFAULT_TYPE):
+    """Triggered when the business connection is established or removed."""
     global business_conn_id
     conn = update.business_connection
     if conn and conn.is_enabled:
@@ -63,10 +69,12 @@ async def handle_business_connection(update: Update, _: ContextTypes.DEFAULT_TYP
         log.warning("BUSINESS DISCONNECTED")
 
 async def handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming messages and send paid media if trigger phrase is detected."""
     global business_conn_id
     if not business_conn_id:
         log.warning("NO BUSINESS CONNECTION – ignoring message")
         return
+
     if not update.message or not update.message.text:
         log.debug("NON-TEXT message ignored")
         return
@@ -76,7 +84,7 @@ async def handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE):
     log.info("INCOMING | chat_id=%s text=%r", chat_id, text)
 
     if TRIGGER_PHRASE not in text.lower():
-        log.debug("TRIGGER phrase not found")
+        log.debug("Trigger phrase not found in text")
         return
 
     if not os.path.isfile(FULL_IMAGE_PATH):
@@ -90,18 +98,20 @@ async def handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE):
                 star_count=STARS_AMOUNT,
                 payload=PAYLOAD,
             )
-            await application.bot.send_photo(
-                chat_id=chat_id,
-                photo=photo,
-                caption=CAPTION,
-                paid_media=paid_media,
+
+            # Correct Telegram Stars API call
+            await application.bot.send_paid_media(
                 business_connection_id=business_conn_id,
+                paid_media=[paid_media],
             )
+
         log.info("PAID PHOTO SENT | chat_id=%s", chat_id)
+
     except Exception as exc:
         log.exception("SEND FAILED | chat_id=%s | %s", chat_id, exc)
 
 async def handle_pre_checkout(update: Update, _: ContextTypes.DEFAULT_TYPE):
+    """Confirm payment when Telegram sends a pre-checkout query."""
     query = update.pre_checkout_query
     log.info("PRE-CHECKOUT | payload=%s", query.invoice_payload)
     if query.invoice_payload == PAYLOAD:
@@ -120,6 +130,7 @@ def register_handlers():
 # -------------------------- WEBHOOK ROUTE ------------------
 @app.route("/webhook", methods=["POST"])
 async def webhook():
+    """Receive Telegram updates via webhook."""
     try:
         data = await request.get_json(force=True)
         upd = Update.de_json(data, application.bot)
@@ -131,7 +142,7 @@ async def webhook():
 
 @app.route("/")
 async def home():
-    return "<h1>Paid-DM Bot LIVE</h1>Webhook: <code>/webhook</code>"
+    return "<h1>Paid-DM Bot LIVE ✅</h1><p>Webhook active at <code>/webhook</code></p>"
 
 # --------------------------- START ------------------------
 async def main():
@@ -142,10 +153,10 @@ async def main():
     # Run Quart with uvicorn (ASGI)
     import uvicorn
     config = uvicorn.Config(
-        app, 
-        host="0.0.0.0", 
+        app,
+        host="0.0.0.0",
         port=int(os.getenv("PORT", 10000)),
-        log_level="info"
+        log_level="info",
     )
     server = uvicorn.Server(config)
     await server.serve()
