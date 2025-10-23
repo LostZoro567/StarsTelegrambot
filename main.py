@@ -1,11 +1,11 @@
 # --------------------------------------------------------------
-# main.py  –  Paid-DM bot with FULL DEBUG + INITIALIZE FIX
+# main.py  –  Paid-DM bot with ASGI FIX (Quart + Uvicorn)
 # --------------------------------------------------------------
 
 import os
 import logging
 import asyncio
-from flask import Flask, request, jsonify
+from quart import Quart, request, jsonify  # ← ASYNC FLASK
 
 from telegram import Update, InputMediaPhoto, PaidMediaInfo
 from telegram.ext import (
@@ -38,28 +38,18 @@ log = logging.getLogger("paid-dm-bot")
 
 # -------------------------- GLOBALS ------------------------
 business_conn_id: str | None = None
-application: Application | None = None  # Will be initialized on startup
+application: Application | None = None
 
-# -------------------------- FLASK -------------------------
-app = Flask(__name__)
+# -------------------------- QUART APP ------------------------
+app = Quart(__name__)
 
-# ----------------------- INITIALIZE APP --------------------
+# ----------------------- BOT INITIALIZE --------------------
 async def init_bot():
     global application
     log.info("INITIALIZING Telegram Application...")
     application = Application.builder().token(BOT_TOKEN).build()
-    await application.initialize()  # REQUIRED FOR WEBHOOK
-    await application.start()
-    log.info("Telegram Application STARTED")
-
-# ----------------------- SHUTDOWN -------------------------
-async def shutdown_bot():
-    global application
-    if application:
-        log.info("SHUTTING DOWN Telegram Application...")
-        await application.stop()
-        await application.updater.stop() if application.updater else None
-        await application.shutdown()
+    await application.initialize()  # REQUIRED
+    log.info("Telegram Application INITIALIZED – ready for webhooks")
 
 # ----------------------- HANDLERS -------------------------
 async def handle_business_connection(update: Update, _: ContextTypes.DEFAULT_TYPE):
@@ -127,11 +117,11 @@ def register_handlers():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
 
-# -------------------------- WEBHOOK -----------------------
+# -------------------------- WEBHOOK ROUTE ------------------
 @app.route("/webhook", methods=["POST"])
 async def webhook():
     try:
-        data = request.get_json(force=True)
+        data = await request.get_json(force=True)
         upd = Update.de_json(data, application.bot)
         await application.process_update(upd)
         return jsonify(success=True)
@@ -140,25 +130,25 @@ async def webhook():
         return jsonify(error=str(exc)), 500
 
 @app.route("/")
-def home():
+async def home():
     return "<h1>Paid-DM Bot LIVE</h1>Webhook: <code>/webhook</code>"
 
 # --------------------------- START ------------------------
 async def main():
     await init_bot()
     register_handlers()
-    log.info("Bot READY – Webhook active")
+    log.info("Bot READY – Webhook active at /webhook")
 
-    # Keep Flask running
+    # Run Quart with uvicorn (ASGI)
     import uvicorn
-    config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    config = uvicorn.Config(
+        app, 
+        host="0.0.0.0", 
+        port=int(os.getenv("PORT", 10000)),
+        log_level="info"
+    )
     server = uvicorn.Server(config)
     await server.serve()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    finally:
-        asyncio.run(shutdown_bot())
+    asyncio.run(main())
