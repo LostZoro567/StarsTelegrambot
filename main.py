@@ -7,7 +7,8 @@ from telegram.ext import (
     ContextTypes, 
     MessageHandler, 
     filters, 
-    BusinessConnectionHandler  # ← NEW: Dedicated handler for business connections
+    BusinessConnectionHandler,
+    PreCheckoutQueryHandler  # ← NEW: Dedicated handler for pre-checkout
 )
 
 # =============================
@@ -96,24 +97,29 @@ async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE
 # =============================
 # REGISTER HANDLERS
 # =============================
-# Business connection updates (NEW: Dedicated handler)
+# Business connection updates
 application.add_handler(BusinessConnectionHandler(handle_business_connection))
 
 # Text messages (in your DMs)
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Pre-checkout queries (payment approval)
-application.add_handler(MessageHandler(filters.PRECHECKOUT_QUERY, handle_pre_checkout))
+# Pre-checkout queries (NEW: Dedicated handler)
+application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
 
 # =============================
-# WEBHOOK ENDPOINT
+# WEBHOOK ENDPOINT (SYNC VERSION FOR FLASK)
 # =============================
 @app.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
+    """Sync wrapper for async process_update"""
     try:
+        import asyncio
         json_data = request.get_json(force=True)
         update = Update.de_json(json_data, application.bot)
-        await application.process_update(update)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(application.process_update(update))
+        loop.close()
         return jsonify(success=True)
     except Exception as e:
         logger.error(f"Webhook error: {e}")
