@@ -1,5 +1,5 @@
 # --------------------------------------------------------------
-# main.py  –  Paid-DM bot with full debug logging
+# main.py  –  Paid-DM bot with FULL DEBUG + INITIALIZE FIX
 # --------------------------------------------------------------
 
 import os
@@ -38,34 +38,42 @@ log = logging.getLogger("paid-dm-bot")
 
 # -------------------------- GLOBALS ------------------------
 business_conn_id: str | None = None
+application: Application | None = None  # Will be initialized on startup
 
 # -------------------------- FLASK -------------------------
 app = Flask(__name__)
-application = Application.builder().token(BOT_TOKEN).build()
 
+# ----------------------- INITIALIZE APP --------------------
+async def init_bot():
+    global application
+    log.info("INITIALIZING Telegram Application...")
+    application = Application.builder().token(BOT_TOKEN).build()
+    await application.initialize()  # REQUIRED FOR WEBHOOK
+    await application.start()
+    log.info("Telegram Application STARTED")
+
+# ----------------------- SHUTDOWN -------------------------
+async def shutdown_bot():
+    global application
+    if application:
+        log.info("SHUTTING DOWN Telegram Application...")
+        await application.stop()
+        await application.updater.stop() if application.updater else None
+        await application.shutdown()
 
 # ----------------------- HANDLERS -------------------------
 async def handle_business_connection(update: Update, _: ContextTypes.DEFAULT_TYPE):
-    """Log connection / disconnection."""
     global business_conn_id
     conn = update.business_connection
     if conn and conn.is_enabled:
         business_conn_id = conn.id
-        log.info(
-            "BUSINESS CONNECTED | id=%s can_reply=%s",
-            conn.id,
-            conn.can_reply,
-        )
+        log.info("BUSINESS CONNECTED | id=%s can_reply=%s", conn.id, conn.can_reply)
     else:
         business_conn_id = None
-        log.warning("BUSINESS DISCONNECTED or disabled")
-
+        log.warning("BUSINESS DISCONNECTED")
 
 async def handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE):
-    """Process incoming DMs."""
     global business_conn_id
-
-    # 1. sanity checks
     if not business_conn_id:
         log.warning("NO BUSINESS CONNECTION – ignoring message")
         return
@@ -77,17 +85,14 @@ async def handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     log.info("INCOMING | chat_id=%s text=%r", chat_id, text)
 
-    # 2. trigger phrase
     if TRIGGER_PHRASE not in text.lower():
-        log.debug("TRIGGER phrase not found – ignoring")
+        log.debug("TRIGGER phrase not found")
         return
 
-    # 3. image existence
     if not os.path.isfile(FULL_IMAGE_PATH):
         log.error("IMAGE NOT FOUND | path=%s", FULL_IMAGE_PATH)
         return
 
-    # 4. send paid photo
     try:
         with open(FULL_IMAGE_PATH, "rb") as photo:
             paid_media = PaidMediaInfo(
@@ -106,55 +111,54 @@ async def handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE):
     except Exception as exc:
         log.exception("SEND FAILED | chat_id=%s | %s", chat_id, exc)
 
-
 async def handle_pre_checkout(update: Update, _: ContextTypes.DEFAULT_TYPE):
-    """Approve / reject Star payment."""
     query = update.pre_checkout_query
-    log.info(
-        "PRE-CHECKOUT | payload=%s amount=%s",
-        query.invoice_payload,
-        query.total_amount,
-    )
+    log.info("PRE-CHECKOUT | payload=%s", query.invoice_payload)
     if query.invoice_payload == PAYLOAD:
         await query.answer(ok=True)
         log.info("PAYMENT APPROVED")
     else:
         await query.answer(ok=False, error_message="Invalid payload")
-        log.warning("PAYMENT REJECTED – wrong payload")
-
+        log.warning("PAYMENT REJECTED")
 
 # --------------------- REGISTER HANDLERS ------------------
-application.add_handler(BusinessConnectionHandler(handle_business_connection))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
-
+def register_handlers():
+    application.add_handler(BusinessConnectionHandler(handle_business_connection))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
 
 # -------------------------- WEBHOOK -----------------------
 @app.route("/webhook", methods=["POST"])
-def webhook():
-    """Flask → async bridge (runs in its own loop)."""
+async def webhook():
     try:
         data = request.get_json(force=True)
         upd = Update.de_json(data, application.bot)
-
-        # run the update in a fresh event loop (Flask is sync)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(application.process_update(upd))
-        loop.close()
-
+        await application.process_update(upd)
         return jsonify(success=True)
     except Exception as exc:
         log.exception("WEBHOOK ERROR | %s", exc)
         return jsonify(error=str(exc)), 500
 
-
 @app.route("/")
 def home():
-    return "<h1>Paid-DM Bot LIVE – check Render logs</h1>"
-
+    return "<h1>Paid-DM Bot LIVE</h1>Webhook: <code>/webhook</code>"
 
 # --------------------------- START ------------------------
+async def main():
+    await init_bot()
+    register_handlers()
+    log.info("Bot READY – Webhook active")
+
+    # Keep Flask running
+    import uvicorn
+    config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    server = uvicorn.Server(config)
+    await server.serve()
+
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        asyncio.run(shutdown_bot())
