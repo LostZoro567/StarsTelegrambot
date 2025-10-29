@@ -1,168 +1,40 @@
-# --------------------------------------------------------------
-# main.py  –  Paid-DM Telegram Bot (Quart + Uvicorn, Python 3.13)
-# --------------------------------------------------------------
+from aiogram import Bot, Dispatcher, executor, types
 
-import os
-import logging
-import asyncio
-from quart import Quart, request, jsonify  # ASGI-compatible Flask
+API_TOKEN = 'YOUR_BOT_API_TOKEN'
+PROVIDER_TOKEN = 'YOUR_PROVIDER_TOKEN'
+LOCKED_IMAGE_PATH = 'photo_2025-10-30_05-04-19.jpg'  # Use your uploaded file
+UNLOCK_PRICE = 229  # Number of Stars
 
-from telegram import Update, InputMediaPhoto, PaidMediaInfo
-from telegram.ext import (
-    Application,
-    ContextTypes,
-    BusinessConnectionHandler,
-    MessageHandler,
-    PreCheckoutQueryHandler,
-    filters,
-)
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
 
-# -------------------------- CONFIG --------------------------
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-FULL_IMAGE_PATH = os.getenv("FULL_IMAGE_PATH", "a7x9p2q1z.jpg")
-STARS_AMOUNT = int(os.getenv("STARS_AMOUNT", "499"))
-PAYLOAD = os.getenv("PAYLOAD", "unlock_image")
-TRIGGER_PHRASE = os.getenv("TRIGGER_PHRASE", "send nudes").strip().lower()
-CAPTION = os.getenv("CAPTION", "here you go")
+# When user sends trigger phrase
+@dp.message_handler(lambda message: 'send nudes' in message.text.lower())
+async def send_locked_photo(message: types.Message):
+    locked_caption = f"Unlock for ⭐ {UNLOCK_PRICE}"
+    # Send "locked" image with unlock caption
+    await message.answer_photo(types.InputFile(LOCKED_IMAGE_PATH), caption=locked_caption)
 
-# ----------------------- VALIDATION -----------------------
-if not BOT_TOKEN or not BOT_TOKEN.strip():
-    raise RuntimeError("BOT_TOKEN missing – set it in Render → Environment Variables")
-
-# -------------------------- LOGGING ------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s | %(message)s",
-)
-log = logging.getLogger("paid-dm-bot")
-
-# -------------------------- GLOBALS ------------------------
-business_conn_id: str | None = None
-application: Application | None = None
-
-# -------------------------- QUART APP ------------------------
-# Safe patch for missing config key in some Quart builds
-try:
-    from flask.sansio.app import App as SansioApp
-    if "PROVIDE_AUTOMATIC_OPTIONS" not in SansioApp.default_config:
-        SansioApp.default_config["PROVIDE_AUTOMATIC_OPTIONS"] = True
-except Exception as e:
-    # silently skip if module not present (safe on newer Quart)
-    log.info("Flask-Sansio patch skipped: %s", e)
-
-app = Quart(__name__)
-
-# ----------------------- BOT INITIALIZE --------------------
-async def init_bot():
-    global application
-    log.info("INITIALIZING Telegram Application...")
-    application = Application.builder().token(BOT_TOKEN).build()
-    await application.initialize()  # REQUIRED
-    log.info("Telegram Application INITIALIZED – ready for webhooks")
-
-# ----------------------- HANDLERS -------------------------
-async def handle_business_connection(update: Update, _: ContextTypes.DEFAULT_TYPE):
-    """Triggered when the business connection is established or removed."""
-    global business_conn_id
-    conn = update.business_connection
-    if conn and conn.is_enabled:
-        business_conn_id = conn.id
-        log.info("BUSINESS CONNECTED | id=%s can_reply=%s", conn.id, conn.can_reply)
-    else:
-        business_conn_id = None
-        log.warning("BUSINESS DISCONNECTED")
-
-async def handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages and send paid media if trigger phrase is detected."""
-    global business_conn_id
-    if not business_conn_id:
-        log.warning("NO BUSINESS CONNECTION – ignoring message")
-        return
-
-    if not update.message or not update.message.text:
-        log.debug("NON-TEXT message ignored")
-        return
-
-    text = update.message.text.strip()
-    chat_id = update.message.chat_id
-    log.info("INCOMING | chat_id=%s text=%r", chat_id, text)
-
-    if TRIGGER_PHRASE not in text.lower():
-        log.debug("Trigger phrase not found in text")
-        return
-
-    if not os.path.isfile(FULL_IMAGE_PATH):
-        log.error("IMAGE NOT FOUND | path=%s", FULL_IMAGE_PATH)
-        return
-
-    try:
-        with open(FULL_IMAGE_PATH, "rb") as photo:
-            paid_media = PaidMediaInfo(
-                media=InputMediaPhoto(photo, caption=CAPTION),
-                star_count=STARS_AMOUNT,
-                payload=PAYLOAD,
-            )
-
-            # Correct Telegram Stars API call
-            await application.bot.send_paid_media(
-                business_connection_id=business_conn_id,
-                paid_media=[paid_media],
-            )
-
-        log.info("PAID PHOTO SENT | chat_id=%s", chat_id)
-
-    except Exception as exc:
-        log.exception("SEND FAILED | chat_id=%s | %s", chat_id, exc)
-
-async def handle_pre_checkout(update: Update, _: ContextTypes.DEFAULT_TYPE):
-    """Confirm payment when Telegram sends a pre-checkout query."""
-    query = update.pre_checkout_query
-    log.info("PRE-CHECKOUT | payload=%s", query.invoice_payload)
-    if query.invoice_payload == PAYLOAD:
-        await query.answer(ok=True)
-        log.info("PAYMENT APPROVED")
-    else:
-        await query.answer(ok=False, error_message="Invalid payload")
-        log.warning("PAYMENT REJECTED")
-
-# --------------------- REGISTER HANDLERS ------------------
-def register_handlers():
-    application.add_handler(BusinessConnectionHandler(handle_business_connection))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
-
-# -------------------------- WEBHOOK ROUTE ------------------
-@app.route("/webhook", methods=["POST"])
-async def webhook():
-    """Receive Telegram updates via webhook."""
-    try:
-        data = await request.get_json(force=True)
-        upd = Update.de_json(data, application.bot)
-        await application.process_update(upd)
-        return jsonify(success=True)
-    except Exception as exc:
-        log.exception("WEBHOOK ERROR | %s", exc)
-        return jsonify(error=str(exc)), 500
-
-@app.route("/")
-async def home():
-    return "<h1>Paid-DM Bot LIVE ✅</h1><p>Webhook active at <code>/webhook</code></p>"
-
-# --------------------------- START ------------------------
-async def main():
-    await init_bot()
-    register_handlers()
-    log.info("Bot READY – Webhook active at /webhook")
-
-    import uvicorn
-    config = uvicorn.Config(
-        app,
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 10000)),
-        log_level="info",
+    # Follow with unlock invoice for Stars
+    prices = [types.LabeledPrice(label='Unlock photo', amount=UNLOCK_PRICE * 100)]  # Telegram price is in cents
+    await bot.send_invoice(
+        chat_id=message.chat.id,
+        title="Unlock Photo",
+        description="Unlock secret photo",
+        payload="photo_unlock",
+        provider_token=PROVIDER_TOKEN,
+        currency="XTR",
+        prices=prices,
+        need_name=False
     )
-    server = uvicorn.Server(config)
-    await server.serve()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+@dp.pre_checkout_query_handler(lambda query: True)
+async def pre_checkout_query_handler(query: types.PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(query.id, ok=True)
+
+@dp.message_handler(content_types=types.ContentType.SUCCESSFUL_PAYMENT)
+async def payment_success(message: types.Message):
+    await message.answer_photo(photo=open(LOCKED_IMAGE_PATH, 'rb'), caption="Here is your unlocked photo 💋")
+
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
