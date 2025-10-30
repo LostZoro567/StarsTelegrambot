@@ -11,7 +11,7 @@ from aiogram.types import (
     URLInputFile,
     InputPaidMediaPhoto,
     PaidMediaPurchased,
-    BusinessMessage,
+    Message,
 )
 
 app = FastAPI()
@@ -21,7 +21,7 @@ dp = Dispatcher()
 # ==============================================================
 # CUSTOMIZE HERE
 # ==============================================================
-IMAGE_URL = "https://graph.org/file/7ce66e7aaa31c083758ba-fb872221fd56cfd66c.jpg"   # Direct public link
+IMAGE_URL = "https://graph.org/file/133fd14039f84d5e667f7-bc2522554dbcd25aad.jpg"   # Direct public link
 STAR_PRICE = 139                                        # Stars to unlock
 TRIGGER_WORDS = [
     "naked", "nude", "photo", "pic", "nudes", "tits", "ass", "pussy", "see you"
@@ -32,11 +32,10 @@ TRIGGER_WORDS = [
 async def lifespan(_: FastAPI) -> Any:
     global bot
     bot = Bot(token=os.environ["BOT_TOKEN"])
-    dp = Dispatcher()
 
-    # BUSINESS DM HANDLER (DMs to your personal account)
-    @dp.business_message()
-    async def handle_business_dm(message: BusinessMessage):
+    # BUSINESS DM HANDLER: Only triggers on DMs to your business account
+    @dp.message(F.business_connection_id.is_not_none())
+    async def handle_business_dm(message: Message):
         user = message.from_user
         if user.is_bot:
             return
@@ -67,9 +66,9 @@ async def lifespan(_: FastAPI) -> Any:
         paid: PaidMediaPurchased = update.paid_media_purchased
         print(f"SALE! Stars: {paid.stars} | User: {paid.user.id} | Payload: {paid.payload}")
 
-    # DEBUG: See all incoming DMs
-    @dp.business_message()
-    async def debug(message: BusinessMessage):
+    # DEBUG: See all business DMs (remove later)
+    @dp.message(F.business_connection_id.is_not_none())
+    async def debug(message: Message):
         print(f"DM: '{message.text}' | User: {message.from_user.id} | Conn: {message.business_connection_id}")
 
     # SET WEBHOOK
