@@ -11,8 +11,8 @@ from aiogram.types import (
     URLInputFile,
     InputPaidMediaPhoto,
     PaidMediaPurchased,
+    BusinessMessage,
 )
-from aiogram.enums import ChatType
 
 app = FastAPI()
 
@@ -23,7 +23,7 @@ dp: Dispatcher = None
 # ====  CUSTOMISE THESE  ========================================
 # ==============================================================
 
-IMAGE_URL = "https://graph.org/file/83300c88a9199a6459eb5-9f9ba39b172f8985ef.jpg"   # CHANGE
+IMAGE_URL = "https://graph.org/file/7ce66e7aaa31c083758ba-fb872221fd56cfd66c.jpg"   # CHANGE
 STAR_PRICE = 139                                        # CHANGE
 TRIGGER_WORDS = [
     "naked", "nude", "see you", "photo", "pic", "nudes",
@@ -38,8 +38,11 @@ async def lifespan(_: FastAPI) -> Any:
     bot = Bot(token=os.environ["BOT_TOKEN"])
     dp = Dispatcher()
 
-    @dp.message(F.chat.type == "private")
-    async def private_dm(message):
+    @dp.business_message()
+    async def business_dm(message: BusinessMessage):
+        # Debug: Print every business message
+        print(f"IN: '{message.text}' | Chat:{message.chat.id} | Type:{message.chat.type} | Conn:{message.business_connection_id}")
+
         if message.from_user.is_bot:
             return
 
@@ -53,6 +56,7 @@ async def lifespan(_: FastAPI) -> Any:
             try:
                 await bot.send_paid_media(
                     chat_id=message.chat.id,
+                    business_connection_id=message.business_connection_id,
                     media=media,
                     star_count=STAR_PRICE,
                     caption=caption,
@@ -64,12 +68,9 @@ async def lifespan(_: FastAPI) -> Any:
 
     @dp.update(F.paid_media_purchased)
     async def sale(update: Update):
-        paid: PaidMediaPurchased = update.paid_media_purchased
-        print(f"SALE! User: {paid.from_user.id} | Payload: {paid.paid_media_payload}")
-
-    @dp.message()
-    async def debug(msg):
-        print(f"IN: '{msg.text}' | Chat:{msg.chat.id} | Type:{msg.chat.type}")
+        if update.paid_media_purchased:
+            paid: PaidMediaPurchased = update.paid_media_purchased
+            print(f"SALE! Stars: {paid.stars} | User: {paid.user.id} | Payload: {paid.payload}")
 
     webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook"
     await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
