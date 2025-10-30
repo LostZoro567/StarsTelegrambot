@@ -5,8 +5,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from aiogram import Bot, Dispatcher
-from aiogram.filters.chat_type import ChatTypeFilter  # ← CORRECT IMPORT
+from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Update,
     URLInputFile,
@@ -39,7 +38,7 @@ async def lifespan(_: FastAPI) -> Any:
     bot = Bot(token=os.environ["BOT_TOKEN"])
     dp = Dispatcher()
 
-    @dp.message(ChatTypeFilter(chat_type=[ChatType.PRIVATE]))
+    @dp.message(F.chat.type == "private")
     async def private_dm(message):
         if message.from_user.is_bot:
             return
@@ -63,9 +62,8 @@ async def lifespan(_: FastAPI) -> Any:
             except Exception as e:
                 print(f"ERROR sending paid media: {e}")
 
-    @dp.update(F.paid_media_purchased)
-    async def sale(update: Update):
-        paid: PaidMediaPurchased = update.paid_media_purchased
+    @dp.paid_media_purchased()
+    async def sale(paid: PaidMediaPurchased):
         print(f"SALE! Stars: {paid.stars} | User: {paid.from_user.id} | Payload: {paid.payload}")
 
     @dp.message()
