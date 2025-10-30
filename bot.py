@@ -1,117 +1,98 @@
 import asyncio
 import logging
 import os
-from aiogram import F, Router, Bot, Dispatcher
-from aiogram.filters import Command  # For /start
-from aiogram.types import InputPaidMediaPhoto, BusinessConnection
+from aiogram import Bot, Dispatcher, F, Router
+from aiogram.filters import Command
+from aiogram.types import InputPaidMediaPhoto, BusinessConnection, PaidMediaPurchased
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
-# Enable debug logging for Aiogram
 logging.basicConfig(level=logging.INFO)
-logging.getLogger("aiogram").setLevel(logging.DEBUG)  # Logs full updates
+logging.getLogger("aiogram").setLevel(logging.DEBUG)
 
 # Env vars
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BUSINESS_CONNECTION_ID = os.getenv("BUSINESS_CONNECTION_ID")  # Set from logs after connecting
-WEBHOOK_PATH = "/webhook"  # Endpoint for Telegram updates
-WEBAPP_HOST = "0.0.0.0"  # Listen on all interfaces
-WEBAPP_PORT = int(os.getenv("PORT", 10000))  # Render sets PORT env var
+BUSINESS_CONNECTION_ID = os.getenv("BUSINESS_CONNECTION_ID", "")  # Optional: "" for direct bot send
+IMAGE_FILE_ID = os.getenv("IMAGE_FILE_ID", "AgACAgIAAxkBAAIB...")  # Replace with your real file_id
+WEBHOOK_PATH = "/webhook"
+WEBAPP_HOST = "0.0.0.0"
+WEBAPP_PORT = int(os.getenv("PORT", 10000))
 
-# Global bot (initialized in main)
-bot = None
-
-# Use Router for message handlers
 router = Router()
 
-@router.message(Command("start"))  # Use Command filter for v3
-async def cmd_start(message):
-    global bot
-    await message.reply("Welcome! Say 'send stuff' to unlock paid content via my personal account. 💫")
+@router.message(Command("start"))
+async def start_handler(message, bot: Bot):
+    await message.reply("Hi! Send 'send stuff' to get exclusive paid content. 💫")
 
-@router.message(F.text.lower() == "send stuff")  # Case-insensitive exact match
-async def send_paid_content(message):
-    global bot
-    logging.info(f"Trigger matched! Sending paid media to user {message.from_user.id}")
-    if not BUSINESS_CONNECTION_ID:
-        await message.reply("Business connection not set up. Check Render logs for the ID and update env var.")
-        return
+@router.message(F.text.lower() == "send stuff")
+async def send_paid_content(message, bot: Bot):
+    logging.info(f"Trigger: Sending to user {message.from_user.id}")
     
-    # Define the paid media: locked photo (replace URL with your file_id or hosted image URL)
-    media = [
-        InputPaidMediaPhoto(
-            media="https://picsum.photos/400/600"  # Placeholder; use "file_id" or your image URL
+    media = [InputPaidMediaPhoto(media=IMAGE_FILE_ID)]  # Use file_id for reliability
+    
+    try:
+        await bot.send_paid_media(
+            chat_id=message.chat.id,
+            media=media,
+            star_count=10,  # Adjust 1-10,000
+            payload="fan_unlock_001",
+            caption="Unlock this fan exclusive! 🔥",
+            business_connection_id=BUSINESS_CONNECTION_ID if BUSINESS_CONNECTION_ID else None,  # Optional for personal send
         )
-    ]
-    
-    # Send locked media via your personal account (10 Stars to unlock)
-    await bot.send_paid_media(
-        chat_id=message.chat.id,
-        business_connection_id=BUSINESS_CONNECTION_ID,  # Routes through personal account
-        media=media,
-        star_count=10,  # Stars required (1-10,000)
-        payload="fan_bot_unlock_001",  # Track purchases
-        caption="Unlock this exclusive content! 💫",
+        logging.info(f"Success: Paid media sent to {message.chat.id}")
+    except Exception as e:
+        logging.error(f"Send failed: {e}")
+        await message.reply(f"Error sending: {str(e)}. Check logs.")
+
+@router.message()
+async def catch_all(message):
+    await message.reply("Try /start or 'send stuff'!")
+
+async def handle_business_connection(connection: BusinessConnection, bot: Bot):
+    logging.info(f"Business connected! ID: {connection.id}, User: {connection.user.id}, Enabled: {connection.is_enabled}")
+    # Copy ID to env var for personal sending
+
+async def handle_purchase(purchase: PaidMediaPurchased, bot: Bot):
+    logging.info(f"Purchase! User {purchase.user_id} paid {purchase.star_count} for {purchase.payload}")
+    await bot.send_message(
+        purchase.user_id,
+        "Thanks for unlocking! More soon? 😘",
+        business_connection_id=BUSINESS_CONNECTION_ID if BUSINESS_CONNECTION_ID else None
     )
 
-# Catch-all for unmatched messages (debug: logs and replies)
-@router.message()
-async def debug_all_messages(message):
-    logging.info(f"Unhandled message from {message.from_user.id}: '{message.text}' (type: {type(message)})")
-    await message.reply("Unknown command. Try /start or 'send stuff' for paid content! 🔒")
+async def on_startup(app, bot: Bot):
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
+    await bot.set_webhook(webhook_url)
+    logging.info(f"Webhook: {webhook_url}")
+
+async def on_shutdown(app, bot: Bot):
+    await bot.delete_webhook()
+    await bot.session.close()
 
 async def main():
-    global bot
     if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN env var required—set it in Render Dashboard > Environment")
+        raise ValueError("Set BOT_TOKEN in Render env")
     
-    # Initialize bot and dp here, after check
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
     dp.include_router(router)
     
-    # Direct handler for BusinessConnection updates (must be on dp, not router)
-    @dp.business_connection()
-    async def handle_business_connection(connection: BusinessConnection):
-        logging.info(f"Business connection: ID={connection.id}, User ID={connection.user.id}, Enabled={connection.is_enabled}")
-        # After seeing this log, update BUSINESS_CONNECTION_ID env var on Render and redeploy
+    # Special handlers (injected with bot)
+    dp.business_connection(handle_business_connection, bot=bot)
+    dp.paid_media_purchased(handle_purchase, bot=bot)
     
-    # Global logger for ALL updates (debug: shows type/content; remove after testing)
-    @dp.update()
-    async def log_all_updates(update):
-        logging.info(f"Received update type: {type(update).__name__}")
-        if hasattr(update, 'to_python'):  # Log content if possible
-            logging.info(f"Update content: {update.to_python()}")
-    
-    # Create aiohttp app
     app = web.Application()
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
+    app.on_startup.append(lambda app: on_startup(app, bot))
+    app.on_shutdown.append(lambda app: on_shutdown(app, bot))
     
-    # Add startup/shutdown hooks
-    async def on_startup(app):
-        global bot
-        webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
-        await bot.set_webhook(webhook_url)
-        logging.info(f"Webhook set to {webhook_url}")
-
-    async def on_shutdown(app):
-        global bot
-        await bot.delete_webhook()
-        await bot.session.close()
-
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
-    
-    # Use AppRunner for fully async server
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
     await site.start()
+    logging.info("Bot live!")
     
-    logging.info("Starting Fan Bot Webhook Server (Via Personal Account)...")
-    
-    # Run forever
     try:
         await asyncio.Event().wait()
     finally:
