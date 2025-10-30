@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from aiogram import Bot, Dispatcher
-from aiogram.filters import ChatTypeFilter
+from aiogram.filters.chat_type import ChatTypeFilter  # ← CORRECT IMPORT
 from aiogram.types import (
     Update,
     URLInputFile,
@@ -24,17 +24,12 @@ dp: Dispatcher = None
 # ====  CUSTOMISE THESE  ========================================
 # ==============================================================
 
-# Public direct link to your *full* photo (must be .jpg/.png/.gif)
-IMAGE_URL = "https://graph.org/file/83300c88a9199a6459eb5-9f9ba39b172f8985ef.jpg"   # <<< CHANGE
-
-# How many Stars the user must pay
-STAR_PRICE = 139                                        # <<< CHANGE
-
-# Words that trigger the bot (case-insensitive)
+IMAGE_URL = "https://graph.org/file/83300c88a9199a6459eb5-9f9ba39b172f8985ef.jpg"   # CHANGE
+STAR_PRICE = 139                                        # CHANGE
 TRIGGER_WORDS = [
     "naked", "nude", "see you", "photo", "pic", "nudes",
     "tits", "ass", "pussy"
-]                                                       # <<< ADD/REMOVE
+]                                                       # CHANGE
 
 # ==============================================================
 
@@ -44,10 +39,8 @@ async def lifespan(_: FastAPI) -> Any:
     bot = Bot(token=os.environ["BOT_TOKEN"])
     dp = Dispatcher()
 
-    # ----------  MAIN HANDLER (private DMs) ----------
     @dp.message(ChatTypeFilter(chat_type=[ChatType.PRIVATE]))
     async def private_dm(message):
-        # ignore bots (including ourselves)
         if message.from_user.is_bot:
             return
 
@@ -70,18 +63,15 @@ async def lifespan(_: FastAPI) -> Any:
             except Exception as e:
                 print(f"ERROR sending paid media: {e}")
 
-    # ----------  SALE LOG (optional) ----------
     @dp.update(F.paid_media_purchased)
     async def sale(update: Update):
         paid: PaidMediaPurchased = update.paid_media_purchased
         print(f"SALE! Stars: {paid.stars} | User: {paid.from_user.id} | Payload: {paid.payload}")
 
-    # ----------  DEBUG ALL INCOMING (remove later) ----------
     @dp.message()
     async def debug(msg):
         print(f"IN: '{msg.text}' | Chat:{msg.chat.id} | Type:{msg.chat.type}")
 
-    # ----------  SET WEBHOOK ----------
     webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook"
     await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
     print(f"Webhook → {webhook_url}")
@@ -93,15 +83,13 @@ async def lifespan(_: FastAPI) -> Any:
 
 app.router.lifespan_context = lifespan
 
-# ----------  WEBHOOK ENDPOINT ----------
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
-    update = Update(**data)               # convert dict → Update object
+    update = Update(**data)
     await dp.feed_update(bot, update)
     return JSONResponse({"ok": True})
 
-# ----------  LOCAL RUN (optional) ----------
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
