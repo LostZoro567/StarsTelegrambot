@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import os
-from aiogram import F, Router
+from aiogram import F, Router, Bot, Dispatcher
+from aiogram.filters import Command  # Import Command filter for v3
 from aiogram.types import InputPaidMediaPhoto, BusinessConnection
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
@@ -23,7 +24,7 @@ bot = None
 # Use Router for handlers (recommended in Aiogram 3)
 router = Router()
 
-@router.message(commands=["start"])
+@router.message(Command("start"))  # Use Command filter for v3 (no kwargs)
 async def cmd_start(message):
     global bot
     await message.reply("Welcome! Say 'send stuff' to unlock paid content via my personal account. 💫")
@@ -82,7 +83,6 @@ async def main():
         raise ValueError("BOT_TOKEN env var required—set it in Render Dashboard > Environment")
     
     # Initialize bot and dp here, after check
-    from aiogram import Bot, Dispatcher
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
     dp.include_router(router)
