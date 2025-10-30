@@ -1,8 +1,7 @@
 import asyncio
 import logging
 import os
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Text
+from aiogram import Bot, Dispatcher, F, Router  # Added F and Router
 from aiogram.types import InputPaidMediaPhoto, BusinessConnection
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
@@ -12,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 
 # Env vars
 BOT_TOKEN = os.getenv("8355078489:AAEplo9rAQozIOCW1RhYGWzOYliH8_CLG5I")
-BUSINESS_CONNECTION_ID = os.getenv("BUSINESS_CONNECTION_ID")  # Set this from logs after connecting
+BUSINESS_CONNECTION_ID = os.getenv("BUSINESS_CONNECTION_ID")  # Set from logs after connecting
 WEBHOOK_PATH = "/webhook"  # Endpoint for Telegram updates
 WEBAPP_HOST = "0.0.0.0"  # Listen on all interfaces
 WEBAPP_PORT = int(os.getenv("PORT", 10000))  # Render sets PORT env var
@@ -20,7 +19,11 @@ WEBAPP_PORT = int(os.getenv("PORT", 10000))  # Render sets PORT env var
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-@dp.message(Text(text="send stuff", ignore_case=True))
+# Use Router for handlers (recommended in Aiogram 3)
+router = Router()
+dp.include_router(router)
+
+@router.message(F.text.lower() == "send stuff")  # Case-insensitive exact match via Magic Filter
 async def send_paid_content(message):
     if not BUSINESS_CONNECTION_ID:
         await message.reply("Business connection not set up. Check Render logs for the ID and update env var.")
