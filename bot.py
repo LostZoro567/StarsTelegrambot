@@ -6,8 +6,9 @@ from aiogram.types import InputPaidMediaPhoto, BusinessConnection
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
-# Setup logging
+# Enable debug logging for Aiogram
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("aiogram").setLevel(logging.DEBUG)  # Logs full updates
 
 # Env vars
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -22,9 +23,15 @@ bot = None
 # Use Router for handlers (recommended in Aiogram 3)
 router = Router()
 
+@router.message(commands=["start"])
+async def cmd_start(message):
+    global bot
+    await message.reply("Welcome! Say 'send stuff' to unlock paid content via my personal account. 💫")
+
 @router.message(F.text.lower() == "send stuff")  # Case-insensitive exact match via Magic Filter
 async def send_paid_content(message):
     global bot
+    logging.info(f"Trigger matched! Sending paid media to user {message.from_user.id}")
     if not BUSINESS_CONNECTION_ID:
         await message.reply("Business connection not set up. Check Render logs for the ID and update env var.")
         return
@@ -50,6 +57,12 @@ async def send_paid_content(message):
 async def handle_business_connection(connection: BusinessConnection):
     logging.info(f"Business connection: ID={connection.id}, User ID={connection.user.id}, Enabled={connection.is_enabled}")
     # After seeing this log, update BUSINESS_CONNECTION_ID env var on Render and redeploy
+
+# Catch-all for unmatched messages (debug: logs and replies)
+@router.message()
+async def debug_all_messages(message):
+    logging.info(f"Unhandled message from {message.from_user.id}: '{message.text}' (type: {type(message)})")
+    await message.reply("Unknown command. Try /start or 'send stuff' for paid content! 🔒")
 
 async def on_startup(app):
     global bot
