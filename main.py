@@ -5,64 +5,86 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
+from aiogram.filters import ChatTypeFilter
 from aiogram.types import (
-    InputPaidMediaPhoto,
-    URLInputFile,
-    BusinessConnection,
     Update,
+    URLInputFile,
+    InputPaidMediaPhoto,
     PaidMediaPurchased,
 )
+from aiogram.enums import ChatType
 
 app = FastAPI()
 
 bot: Bot = None
 dp: Dispatcher = None
 
-# ===== CUSTOMIZE HERE =====
-IMAGE_URL = "https://graph.org/file/83300c88a9199a6459eb5-9f9ba39b172f8985ef.jpg"  # <- REPLACE with YOUR public image URL
-STAR_PRICE = 139  # Stars to unlock
-TRIGGER_WORDS = ["naked", "nude", "see you", "photo", "pic", "nudes", "tits", "ass", "pussy"]  # Add more
+# ==============================================================
+# ====  CUSTOMISE THESE  ========================================
+# ==============================================================
+
+# Public direct link to your *full* photo (must be .jpg/.png/.gif)
+IMAGE_URL = "https://i.imgur.com/YOUR_FULL_PHOTO.jpg"   # <<< CHANGE
+
+# How many Stars the user must pay
+STAR_PRICE = 139                                        # <<< CHANGE
+
+# Words that trigger the bot (case-insensitive)
+TRIGGER_WORDS = [
+    "naked", "nude", "see you", "photo", "pic", "nudes",
+    "tits", "ass", "pussy"
+]                                                       # <<< ADD/REMOVE
+
+# ==============================================================
 
 @asynccontextmanager
-async def lifespan(app_: FastAPI) -> Any:
+async def lifespan(_: FastAPI) -> Any:
     global bot, dp
     bot = Bot(token=os.environ["BOT_TOKEN"])
     dp = Dispatcher()
 
-    # --- BUSINESS MESSAGE HANDLER ---
-    @dp.message(F.business_connection_id)
-    async def handle_request(message):
-        if message.text and any(word in message.text.lower() for word in TRIGGER_WORDS):
-            # Personalize like screenshot
+    # ----------  MAIN HANDLER (private DMs) ----------
+    @dp.message(ChatTypeFilter(chat_type=[ChatType.PRIVATE]))
+    async def private_dm(message):
+        # ignore bots (including ourselves)
+        if message.from_user.is_bot:
+            return
+
+        txt = (message.text or "").lower()
+        if any(word in txt for word in TRIGGER_WORDS):
             name = message.from_user.username or message.from_user.first_name or "cutie"
-            caption = f"Hope you enjoy that view {name} 💋"
+            caption = f"Hope you enjoy that view {name}"
 
-            # Send LOCKED media (Telegram auto-blurs + "Unlock for ★{PRICE}")
             media = [InputPaidMediaPhoto(media=URLInputFile(url=IMAGE_URL))]
-            await bot.send_paid_media(
-                chat_id=message.chat.id,
-                media=media,
-                star_count=STAR_PRICE,
-                caption=caption,
-                payload=f"sale_{message.from_user.id}"
-            )
-            print(f"Sent paid media to {name}!")
 
-    # --- OPTIONAL: Connection/Sales Logs ---
-    @dp.business_connection()
-    async def on_connect(conn: BusinessConnection):
-        print(f"✅ Business connected: {conn.user.id}")
+            try:
+                await bot.send_paid_media(
+                    chat_id=message.chat.id,
+                    media=media,
+                    star_count=STAR_PRICE,
+                    caption=caption,
+                    payload=f"sale_{message.from_user.id}"
+                )
+                print(f"SENT PAID MEDIA → {name} (ID:{message.from_user.id})")
+            except Exception as e:
+                print(f"ERROR sending paid media: {e}")
 
+    # ----------  SALE LOG (optional) ----------
     @dp.update(F.paid_media_purchased)
-    async def on_sale(update: Update):
-        paid = update.paid_media_purchased
-        print(f"💰 SALE! Stars: {paid.stars} | Payload: {paid.payload}")
+    async def sale(update: Update):
+        paid: PaidMediaPurchased = update.paid_media_purchased
+        print(f"SALE! Stars: {paid.stars} | User: {paid.from_user.id} | Payload: {paid.payload}")
 
-    # Set Webhook
+    # ----------  DEBUG ALL INCOMING (remove later) ----------
+    @dp.message()
+    async def debug(msg):
+        print(f"IN: '{msg.text}' | Chat:{msg.chat.id} | Type:{msg.chat.type}")
+
+    # ----------  SET WEBHOOK ----------
     webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook"
     await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
-    print(f"🚀 Webhook: {webhook_url}")
+    print(f"Webhook → {webhook_url}")
 
     yield
 
@@ -71,15 +93,15 @@ async def lifespan(app_: FastAPI) -> Any:
 
 app.router.lifespan_context = lifespan
 
-from aiogram.types import Update
-
+# ----------  WEBHOOK ENDPOINT ----------
 @app.post("/webhook")
 async def webhook(request: Request):
-    update_data = await request.json()
-    update = Update(**update_data)  # ← Convert dict to Update object
+    data = await request.json()
+    update = Update(**data)               # convert dict → Update object
     await dp.feed_update(bot, update)
     return JSONResponse({"ok": True})
 
+# ----------  LOCAL RUN (optional) ----------
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
