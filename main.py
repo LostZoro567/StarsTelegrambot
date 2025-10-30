@@ -20,7 +20,7 @@ bot: Bot = None
 dp: Dispatcher = None
 
 # ===== CUSTOMIZE HERE =====
-IMAGE_URL = "https://i.imgur.com/YOUR_FULL_PHOTO.jpg"  # <- REPLACE with YOUR public image URL
+IMAGE_URL = "https://graph.org/file/83300c88a9199a6459eb5-9f9ba39b172f8985ef.jpg"  # <- REPLACE with YOUR public image URL
 STAR_PRICE = 139  # Stars to unlock
 TRIGGER_WORDS = ["naked", "nude", "see you", "photo", "pic", "nudes", "tits", "ass", "pussy"]  # Add more
 
