@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from aiogram import F, Router  # Magic Filter for text matching
+from aiogram import F, Router
 from aiogram.types import InputPaidMediaPhoto, BusinessConnection
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
@@ -16,13 +16,15 @@ WEBHOOK_PATH = "/webhook"  # Endpoint for Telegram updates
 WEBAPP_HOST = "0.0.0.0"  # Listen on all interfaces
 WEBAPP_PORT = int(os.getenv("PORT", 10000))  # Render sets PORT env var
 
-# No bot/dp here—moved to main() to avoid early init
+# Global bot (initialized in main)
+bot = None
 
 # Use Router for handlers (recommended in Aiogram 3)
 router = Router()
 
 @router.message(F.text.lower() == "send stuff")  # Case-insensitive exact match via Magic Filter
-async def send_paid_content(message, bot):  # Pass bot as arg for handler access
+async def send_paid_content(message):
+    global bot
     if not BUSINESS_CONNECTION_ID:
         await message.reply("Business connection not set up. Check Render logs for the ID and update env var.")
         return
@@ -49,21 +51,25 @@ async def handle_business_connection(connection: BusinessConnection):
     logging.info(f"Business connection: ID={connection.id}, User ID={connection.user.id}, Enabled={connection.is_enabled}")
     # After seeing this log, update BUSINESS_CONNECTION_ID env var on Render and redeploy
 
-async def on_startup(app, bot):
+async def on_startup(app):
+    global bot
     # Set webhook URL
     webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
     await bot.set_webhook(webhook_url)
     logging.info(f"Webhook set to {webhook_url}")
 
-async def on_shutdown(app, bot):
+async def on_shutdown(app):
+    global bot
     await bot.delete_webhook()
+    await bot.session.close()
 
 async def main():
+    global bot
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN env var required—set it in Render Dashboard > Environment")
     
     # Initialize bot and dp here, after check
-    from aiogram import Bot, Dispatcher  # Import inside main to avoid early load
+    from aiogram import Bot, Dispatcher
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
     dp.include_router(router)
@@ -73,12 +79,23 @@ async def main():
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
     
-    # Add startup/shutdown hooks (pass bot)
-    app.on_startup.append(lambda _: on_startup(app, bot))
-    app.on_shutdown.append(lambda _: on_shutdown(app, bot))
+    # Add startup/shutdown hooks
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+    
+    # Use AppRunner for fully async server (avoids event loop conflicts)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
+    await site.start()
     
     logging.info("Starting Fan Bot Webhook Server (Via Personal Account)...")
-    web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
+    
+    # Run forever
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await runner.cleanup()
 
 if __name__ == "__main__":
     asyncio.run(main())
