@@ -62,9 +62,10 @@ async def lifespan(_: FastAPI) -> Any:
             except Exception as e:
                 print(f"ERROR sending paid media: {e}")
 
-    @dp.paid_media_purchased()
-    async def sale(paid: PaidMediaPurchased):
-        print(f"SALE! Stars: {paid.stars} | User: {paid.from_user.id} | Payload: {paid.payload}")
+    @dp.update(F.paid_media_purchased)
+    async def sale(update: Update):
+        paid: PaidMediaPurchased = update.paid_media_purchased
+        print(f"SALE! User: {paid.from_user.id} | Payload: {paid.paid_media_payload}")
 
     @dp.message()
     async def debug(msg):
