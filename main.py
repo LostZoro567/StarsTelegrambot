@@ -71,10 +71,13 @@ async def lifespan(app_: FastAPI) -> Any:
 
 app.router.lifespan_context = lifespan
 
+from aiogram.types import Update
+
 @app.post("/webhook")
 async def webhook(request: Request):
-    update_raw = await request.json()
-    await dp.feed_update(bot, update_raw)
+    update_data = await request.json()
+    update = Update(**update_data)  # ← Convert dict to Update object
+    await dp.feed_update(bot, update)
     return JSONResponse({"ok": True})
 
 if __name__ == "__main__":
