@@ -25,7 +25,7 @@ dp: Dispatcher = None
 # ==============================================================
 
 # Public direct link to your *full* photo (must be .jpg/.png/.gif)
-IMAGE_URL = "https://i.imgur.com/YOUR_FULL_PHOTO.jpg"   # <<< CHANGE
+IMAGE_URL = "https://graph.org/file/83300c88a9199a6459eb5-9f9ba39b172f8985ef.jpg"   # <<< CHANGE
 
 # How many Stars the user must pay
 STAR_PRICE = 139                                        # <<< CHANGE
