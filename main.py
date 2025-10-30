@@ -1,37 +1,77 @@
-from aiogram import Bot, Dispatcher, executor, types
+import asyncio
+import logging
+import os
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Text
+from aiogram.types import InputPaidMediaPhoto, BusinessConnection
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 
-# --- SET YOUR BOT TOKEN HERE ---
-API_TOKEN = '8355078489:AAEplo9rAQozIOCW1RhYGWzOYliH8_CLG5I'
-LOCKED_IMAGE_PATH = 'a7x9p2q1z.jpg'  # Use your uploaded file
-UNLOCK_PRICE = 229  # Number of Stars
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+# Env vars
+BOT_TOKEN = os.getenv("8355078489:AAEplo9rAQozIOCW1RhYGWzOYliH8_CLG5I")
+BUSINESS_CONNECTION_ID = os.getenv("BUSINESS_CONNECTION_ID")  # Set this from logs after connecting
+WEBHOOK_PATH = "/webhook"  # Endpoint for Telegram updates
+WEBAPP_HOST = "0.0.0.0"  # Listen on all interfaces
+WEBAPP_PORT = int(os.getenv("PORT", 10000))  # Render sets PORT env var
 
-# When user sends trigger phrase
-@dp.message_handler(lambda message: 'send nudes' in message.text.lower())
-async def send_locked_photo(message: types.Message):
-    locked_caption = f"Unlock for ⭐ {UNLOCK_PRICE}"
-    await message.answer_photo(types.InputFile(LOCKED_IMAGE_PATH), caption=locked_caption)
-    prices = [types.LabeledPrice(label='Unlock photo', amount=UNLOCK_PRICE * 100)]  # Prices in cents (Telegram expects *100)
-    await bot.send_invoice(
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+@dp.message(Text(text="send stuff", ignore_case=True))
+async def send_paid_content(message):
+    if not BUSINESS_CONNECTION_ID:
+        await message.reply("Business connection not set up. Check Render logs for the ID and update env var.")
+        return
+    
+    # Define the paid media: locked photo (replace URL with your file_id or hosted image URL)
+    media = [
+        InputPaidMediaPhoto(
+            media="https://picsum.photos/400/600"  # Placeholder; use "file_id" or your image URL
+        )
+    ]
+    
+    # Send locked media via your personal account (10 Stars to unlock; adjustable)
+    await bot.send_paid_media(
         chat_id=message.chat.id,
-        title="Unlock Photo",
-        description="Unlock secret photo",
-        payload="photo_unlock",   # Custom payload for this sale
-        provider_token="STARS",   # For Stars, use "STARS"
-        currency="XTR",           # "XTR" is the Telegram Stars currency
-        prices=prices,
-        need_name=False
+        business_connection_id=BUSINESS_CONNECTION_ID,  # Routes through personal account
+        media=media,
+        star_count=10,  # Stars required (1-10,000)
+        payload="fan_bot_unlock_001",  # Track purchases
+        caption="Unlock this exclusive content! 💫",  # Appears from your personal profile
     )
 
-@dp.pre_checkout_query_handler(lambda query: True)
-async def pre_checkout_query_handler(query: types.PreCheckoutQuery):
-    await bot.answer_pre_checkout_query(query.id, ok=True)
+@dp.business_connection()
+async def handle_business_connection(connection: BusinessConnection):
+    logging.info(f"Business connection: ID={connection.id}, User ID={connection.user.id}, Enabled={connection.is_enabled}")
+    # After seeing this log, update BUSINESS_CONNECTION_ID env var on Render and redeploy
 
-@dp.message_handler(content_types=types.ContentType.SUCCESSFUL_PAYMENT)
-async def payment_success(message: types.Message):
-    await message.answer_photo(photo=open(LOCKED_IMAGE_PATH, 'rb'), caption="Here is your unlocked photo 💋")
+async def on_startup(_):
+    # Set webhook URL
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
+    await bot.set_webhook(webhook_url)
+    logging.info(f"Webhook set to {webhook_url}")
 
-if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+async def on_shutdown(_):
+    await bot.delete_webhook()
+
+async def main():
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN env var required")
+    
+    # Create aiohttp app
+    app = web.Application()
+    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
+    
+    # Add startup/shutdown hooks
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+    
+    logging.info("Starting Fan Bot Webhook Server (Via Personal Account)...")
+    web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
+
+if __name__ == "__main__":
+    asyncio.run(main())
