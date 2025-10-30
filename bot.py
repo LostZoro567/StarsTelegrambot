@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from aiogram import F, Router, Bot, Dispatcher
-from aiogram.filters import Command  # Import Command filter for v3
+from aiogram.filters import Command  # For /start
 from aiogram.types import InputPaidMediaPhoto, BusinessConnection
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
@@ -21,15 +21,15 @@ WEBAPP_PORT = int(os.getenv("PORT", 10000))  # Render sets PORT env var
 # Global bot (initialized in main)
 bot = None
 
-# Use Router for handlers (recommended in Aiogram 3)
+# Use Router for message handlers
 router = Router()
 
-@router.message(Command("start"))  # Use Command filter for v3 (no kwargs)
+@router.message(Command("start"))  # Use Command filter for v3
 async def cmd_start(message):
     global bot
     await message.reply("Welcome! Say 'send stuff' to unlock paid content via my personal account. 💫")
 
-@router.message(F.text.lower() == "send stuff")  # Case-insensitive exact match via Magic Filter
+@router.message(F.text.lower() == "send stuff")  # Case-insensitive exact match
 async def send_paid_content(message):
     global bot
     logging.info(f"Trigger matched! Sending paid media to user {message.from_user.id}")
@@ -44,38 +44,21 @@ async def send_paid_content(message):
         )
     ]
     
-    # Send locked media via your personal account (10 Stars to unlock; adjustable)
+    # Send locked media via your personal account (10 Stars to unlock)
     await bot.send_paid_media(
         chat_id=message.chat.id,
         business_connection_id=BUSINESS_CONNECTION_ID,  # Routes through personal account
         media=media,
         star_count=10,  # Stars required (1-10,000)
         payload="fan_bot_unlock_001",  # Track purchases
-        caption="Unlock this exclusive content! 💫",  # Appears from your personal profile
+        caption="Unlock this exclusive content! 💫",
     )
-
-@router.business_connection()
-async def handle_business_connection(connection: BusinessConnection):
-    logging.info(f"Business connection: ID={connection.id}, User ID={connection.user.id}, Enabled={connection.is_enabled}")
-    # After seeing this log, update BUSINESS_CONNECTION_ID env var on Render and redeploy
 
 # Catch-all for unmatched messages (debug: logs and replies)
 @router.message()
 async def debug_all_messages(message):
     logging.info(f"Unhandled message from {message.from_user.id}: '{message.text}' (type: {type(message)})")
     await message.reply("Unknown command. Try /start or 'send stuff' for paid content! 🔒")
-
-async def on_startup(app):
-    global bot
-    # Set webhook URL
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
-    await bot.set_webhook(webhook_url)
-    logging.info(f"Webhook set to {webhook_url}")
-
-async def on_shutdown(app):
-    global bot
-    await bot.delete_webhook()
-    await bot.session.close()
 
 async def main():
     global bot
@@ -87,16 +70,40 @@ async def main():
     dp = Dispatcher()
     dp.include_router(router)
     
+    # Direct handler for BusinessConnection updates (must be on dp, not router)
+    @dp.business_connection()
+    async def handle_business_connection(connection: BusinessConnection):
+        logging.info(f"Business connection: ID={connection.id}, User ID={connection.user.id}, Enabled={connection.is_enabled}")
+        # After seeing this log, update BUSINESS_CONNECTION_ID env var on Render and redeploy
+    
+    # Global logger for ALL updates (debug: shows type/content; remove after testing)
+    @dp.update()
+    async def log_all_updates(update):
+        logging.info(f"Received update type: {type(update).__name__}")
+        if hasattr(update, 'to_python'):  # Log content if possible
+            logging.info(f"Update content: {update.to_python()}")
+    
     # Create aiohttp app
     app = web.Application()
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
     
     # Add startup/shutdown hooks
+    async def on_startup(app):
+        global bot
+        webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
+        await bot.set_webhook(webhook_url)
+        logging.info(f"Webhook set to {webhook_url}")
+
+    async def on_shutdown(app):
+        global bot
+        await bot.delete_webhook()
+        await bot.session.close()
+
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
     
-    # Use AppRunner for fully async server (avoids event loop conflicts)
+    # Use AppRunner for fully async server
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
